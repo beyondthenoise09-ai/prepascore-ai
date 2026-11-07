@@ -1,0 +1,10 @@
+{
+  "name": "PREPASCORE",
+  "description": "A strict, exam-focused evaluation assistant for Indian students covering MCQs, Short/Long answers, and syllabus tracking.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
