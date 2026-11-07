@@ -3,8 +3,13 @@ import cors from 'cors';
 import path from 'path';
 import { GoogleGenAI, Type, Schema, ThinkingLevel } from '@google/genai';
 import { STATIC_SYLLABUS_DB } from './services/syllabusData';
-import { CURATED_MCQ_BANK, CURATED_SUBJECTIVE_BANK } from './services/questionBank';
-import { ChapterStatus, MCQQuestion, SubjectiveQuestion } from './services/types';
+import { 
+  CURATED_MCQ_BANK, 
+  CURATED_SUBJECTIVE_BANK, 
+  generateDynamicMCQs, 
+  generateDynamicSubjective 
+} from './services/questionBank';
+import { ChapterStatus, SubjectiveQuestion } from './services/types';
 
 const app = express();
 const PORT = 3000;
@@ -12,7 +17,7 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 
-// Initialize Gemini SDK on server-side
+// Initialize Gemini SDK on server-side (supports both GEMINI_API_KEY and API_KEY)
 const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
 let ai: GoogleGenAI | null = null;
 
@@ -31,7 +36,7 @@ if (apiKey) {
     console.error("Server: Failed to initialize GoogleGenAI client:", err);
   }
 } else {
-  console.warn("Server: process.env.GEMINI_API_KEY is not set. Using curated Indian curriculum engine.");
+  console.warn("Server: Neither process.env.GEMINI_API_KEY nor process.env.API_KEY is set. Using curated Indian curriculum engine.");
 }
 
 const STRICT_EXAM_SYSTEM_INSTRUCTION = `
@@ -58,7 +63,7 @@ const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 };
 
 // 1. Generate Syllabus
-app.post('/api/gemini/generate-syllabus', async (req, res) => {
+app.post(['/api/gemini/generate-syllabus', '/gemini/generate-syllabus'], async (req, res) => {
   const { className, subjects } = req.body;
   const classKey = String(className);
   const classData = STATIC_SYLLABUS_DB[classKey] || {};
@@ -89,7 +94,7 @@ app.post('/api/gemini/generate-syllabus', async (req, res) => {
 });
 
 // 2. Generate MCQs
-app.post('/api/gemini/generate-mcqs', async (req, res) => {
+app.post(['/api/gemini/generate-mcqs', '/gemini/generate-mcqs'], async (req, res) => {
   const { subject, chapter, board, className } = req.body;
   const targetCount = 10;
 
@@ -161,134 +166,12 @@ Requirements:
   }
 
   // Fallback high-quality procedural generation for any chapter
-  const fallbackQuestions: MCQQuestion[] = [
-    {
-      id: 1,
-      question: `In ${subject} (${chapter}), what is the fundamental defining principle governing the primary phenomena?`,
-      options: [
-        `Conservation of energy and momentum applicable to ${chapter}`,
-        `Arbitrary external resistance independent of material properties`,
-        `Spontaneous decay without thermodynamic interaction`,
-        `Direct proportionality to inverse square of ambient temperature`
-      ],
-      correctOptionIndex: 0,
-      explanation: `Core principles of ${chapter} in ${subject} are founded on universal conservation laws and fundamental physical/chemical mechanisms.`
-    },
-    {
-      id: 2,
-      question: `Which of the following is the standard SI unit and dimension associated with the key parameter measured in ${chapter}?`,
-      options: [
-        `Standard SI derived unit with dimensional formula [M L² T⁻²] or equivalent`,
-        `Dimensionless scalar with arbitrary scale`,
-        `Non-standard CGS unit without conversion factor`,
-        `Empirical constant depending on atmospheric pressure`
-      ],
-      correctOptionIndex: 0,
-      explanation: `In Indian Board Exams (CBSE/ICSE), SI units and dimensional formulas are mandatory for full marks.`
-    },
-    {
-      id: 3,
-      question: `What happens when boundary conditions or state variables are doubled in the standard model of ${chapter}?`,
-      options: [
-        `The resulting quantity scales quadratically or linearly depending on the governing equation`,
-        `The parameter remains completely unchanged under all variations`,
-        `The equilibrium collapses immediately`,
-        `The system exhibits negative infinity divergence`
-      ],
-      correctOptionIndex: 0,
-      explanation: `Examine the mathematical relation carefully. Proportionality analysis is a primary source of tricky board exam questions.`
-    },
-    {
-      id: 4,
-      question: `Which factor acts as the primary limiting reagent or constraint in the standard mechanism of ${chapter}?`,
-      options: [
-        `Availability of reactants or threshold activation energy`,
-        `Total atmospheric moisture irrespective of temperature`,
-        `Color change of the external indicator`,
-        `Physical volume of the container alone`
-      ],
-      correctOptionIndex: 0,
-      explanation: `Reaction kinetics and equilibrium constraints determine the limiting conditions in ${subject}.`
-    },
-    {
-      id: 5,
-      question: `Under standard conditions, which mathematical relationship correctly represents the rate or field in ${chapter}?`,
-      options: [
-        `Direct variation with gradient: dY/dX = k · X`,
-        `Inverse cubic variation without constant`,
-        `Sinusoidal oscillation with zero frequency`,
-        `Logarithmic decay to negative infinity`
-      ],
-      correctOptionIndex: 0,
-      explanation: `Linear and differential forms represent the core rate laws tested in board examinations.`
-    },
-    {
-      id: 6,
-      question: `Identify the primary source of systematic error during laboratory verification of ${chapter}:`,
-      options: [
-        `Zero error of measuring instrument and parallax error during reading`,
-        `Atmospheric nitrogen composition fluctuation`,
-        `Gravitational variation between room corners`,
-        `Speed of light variation in glass`
-      ],
-      correctOptionIndex: 0,
-      explanation: `CBSE practical questions emphasize parallax errors, zero error, and least count calculation.`
-    },
-    {
-      id: 7,
-      question: `Which graphical plot yields a straight line with slope equal to the governing constant in ${chapter}?`,
-      options: [
-        `Dependent variable versus independent variable under constant temperature`,
-        `Inverse of log(variable) versus random noise`,
-        `Exponential variable versus zero axis`,
-        `Cube root of time versus temperature`
-      ],
-      correctOptionIndex: 0,
-      explanation: `Plotting linear relationships (e.g. V vs I, ln(k) vs 1/T) is a staple question format in board examinations.`
-    },
-    {
-      id: 8,
-      question: `What is the significance of the negative sign in the fundamental differential equation of ${chapter}?`,
-      options: [
-        `Indicates restoring force, opposing gradient, or decrease in reactant concentration`,
-        `Signifies negative absolute temperature`,
-        `Indicates imaginary mathematical root without physical meaning`,
-        `Denotes violation of conservation of energy`
-      ],
-      correctOptionIndex: 0,
-      explanation: `Negative signs in Physics and Chemistry signify directionality (Lenz's Law, Hooke's Law, Rate = -d[R]/dt).`
-    },
-    {
-      id: 9,
-      question: `In industrial or biological applications of ${chapter}, the optimum efficiency is achieved when:`,
-      options: [
-        `Operating temperature, pH, or impedance matching conditions are fulfilled`,
-        `All friction or resistance is arbitrarily set to zero`,
-        `System is completely isolated from heat exchange forever`,
-        `Reaction takes infinite time to reach 1% completion`
-      ],
-      correctOptionIndex: 0,
-      explanation: `Optimal conditions balance thermodynamic yield and kinetic rates as highlighted in NCERT textbook exercises.`
-    },
-    {
-      id: 10,
-      question: `Which assertion-reason statement is true for ${chapter}?`,
-      options: [
-        `Both Assertion and Reason are true and Reason is the correct explanation of Assertion`,
-        `Assertion is true but Reason is false`,
-        `Assertion is false but Reason is true`,
-        `Both Assertion and Reason are completely false`
-      ],
-      correctOptionIndex: 0,
-      explanation: `Assertion-Reason questions test causal understanding between core definitions and observational consequences.`
-    }
-  ];
-
+  const fallbackQuestions = generateDynamicMCQs(subject, chapter, className || '10');
   return res.json({ questions: fallbackQuestions });
 });
 
 // 3. Analyze MCQ Results
-app.post('/api/gemini/analyze-mcqs', async (req, res) => {
+app.post(['/api/gemini/analyze-mcqs', '/gemini/analyze-mcqs'], async (req, res) => {
   const { questions, userAnswers, timeTakenSeconds, subject, chapter, board } = req.body;
   const total = (questions || []).length;
   let score = 0;
@@ -435,7 +318,7 @@ No chatty filler. Direct examiner verdict.`;
 });
 
 // 4. Generate Subjective Test
-app.post('/api/gemini/generate-subjective', async (req, res) => {
+app.post(['/api/gemini/generate-subjective', '/gemini/generate-subjective'], async (req, res) => {
   const { subject, chapter, board, className, mode } = req.body;
   const isLong = mode === 'LONG';
   const targetCount = isLong ? 2 : 5;
@@ -509,35 +392,12 @@ Rules:
   }
 
   // Fallback high-yield questions
-  let fallbackQs: SubjectiveQuestion[] = [];
-  if (isLong) {
-    fallbackQs = [
-      {
-        id: 1,
-        question: `(a) State and explain the fundamental law/principle governing ${chapter} in ${subject}.\n(b) With the help of a neat, labeled diagram, derive the governing mathematical expression.\n(c) State two practical applications and two limitations of this law in board examination format.`,
-        maxMarks: 10
-      },
-      {
-        id: 2,
-        question: `(a) Describe the experimental or analytical setup used to verify the key phenomena of ${chapter}.\n(b) Step-by-step, deduce the expression for energy / efficiency / equilibrium constant.\n(c) A numerical problem: If the initial parameter is doubled and ambient resistance is reduced by 50%, calculate the percentage change in net output. Show all working steps with SI units.`,
-        maxMarks: 10
-      }
-    ];
-  } else {
-    fallbackQs = [
-      { id: 1, question: `Define the primary scientific term in ${chapter} and write its standard SI unit.`, maxMarks: 2 },
-      { id: 2, question: `State the essential conditions required for the occurrence of the main process in ${chapter}.`, maxMarks: 2 },
-      { id: 3, question: `Give two key differences between the two primary mechanisms observed in ${chapter}.`, maxMarks: 2 },
-      { id: 4, question: `Write the balanced chemical / physical equation representing the core change in ${chapter}.`, maxMarks: 2 },
-      { id: 5, question: `Give a concise scientific reason for the practical observation associated with ${chapter}.`, maxMarks: 2 }
-    ];
-  }
-
+  const fallbackQs = generateDynamicSubjective(subject, chapter, className || '10', isLong ? 'LONG' : 'SHORT');
   return res.json({ questions: fallbackQs });
 });
 
 // 5. Evaluate Subjective Test
-app.post('/api/gemini/evaluate-subjective', async (req, res) => {
+app.post(['/api/gemini/evaluate-subjective', '/gemini/evaluate-subjective'], async (req, res) => {
   const { questions, studentAnswers = [], imageBase64, context } = req.body;
   const qs: SubjectiveQuestion[] = questions || [];
   const totalMaxMarks = qs.reduce((acc, curr) => acc + (curr.maxMarks || 2), 0);
@@ -667,7 +527,7 @@ Questions and Student Submissions:
 
     let marksAwarded = 0;
     let feedback = "";
-    let modelAnswer = curatedRubric?.modelAnswer || `To score full marks in ${q.question}, write in standard board format:\n1. State exact definition/law with governing conditions.\n2. Write formula with all symbols defined.\n3. Mention standard SI units.`;
+    let modelAnswer = curatedRubric?.modelAnswer || `To score full marks in this question, write in standard board format:\n1. State exact definition or law with governing conditions.\n2. Write formula with all symbols defined.\n3. Mention standard SI units.`;
     let isZero = false;
 
     if (!hasImage && studentAns.length < 5) {
@@ -728,7 +588,7 @@ Questions and Student Submissions:
 });
 
 // 6. Audio Feedback endpoint
-app.post('/api/gemini/audio-feedback', async (req, res) => {
+app.post(['/api/gemini/audio-feedback', '/gemini/audio-feedback'], async (req, res) => {
   const { text } = req.body;
   if (!text) {
     return res.status(400).json({ error: "No text provided" });
@@ -785,6 +645,11 @@ async function startServer() {
   });
 }
 
-startServer().catch(err => {
-  console.error("Failed to start server:", err);
-});
+// Do not call listen if running inside Vercel serverless environment
+if (!process.env.VERCEL) {
+  startServer().catch(err => {
+    console.error("Failed to start server:", err);
+  });
+}
+
+export default app;
